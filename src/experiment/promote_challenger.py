@@ -19,10 +19,10 @@ from utils.mlflow_utils import (
 )
 
 # initialize dagshub and mlflow
-dagshub.init(repo_owner='himanshu1703', repo_name='llmops-rag-app', mlflow=True)
+dagshub.init(repo_owner='RogueNinja240', repo_name='Llmops-tutorial', mlflow=True)
 
 # set the tracking server
-mlflow.set_tracking_uri("https://dagshub.com/himanshu1703/llmops-rag-app.mlflow")
+mlflow.set_tracking_uri("https://dagshub.com/RogueNinja240/Llmops-tutorial.mlflow")
 
 experiment_id = mlflow.get_experiment_by_name("rag-app").experiment_id
 
