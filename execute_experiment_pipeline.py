@@ -9,8 +9,12 @@ from typing import Literal
 import mlflow 
 import logging 
 from logging import INFO 
+import dagshub 
+from utils.mlflow_utils import log_run_info
+
 
 load_dotenv()
+
 
 ROOT_DIR = Path(__file__).parent
 
@@ -97,7 +101,10 @@ def return_code_files():
 
 # Fixed: double underscores added
 if __name__ == "__main__": 
-    mlflow.set_tracking_uri("http://127.0.0.1:5000/")
+
+    dagshub.init(repo_owner='RogueNinja240', repo_name='Llmops-tutorial', mlflow=True)
+
+    mlflow.set_tracking_uri("https://dagshub.com/RogueNinja240/Llmops-tutorial.mlflow")
     mlflow.set_experiment("rag-app")
     
     logger = logging.getLogger(name="MLflow logger")
@@ -105,52 +112,61 @@ if __name__ == "__main__":
     logger.addHandler(handler)
     logger.setLevel(INFO)
     
-    # Fixed: Formatter syntax
     formatter = logging.Formatter(fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    handler.setFormatter(fmt=formatter)
+    handler.setFormatter(formatter)
 
-    all_params = params_config.model_dump()
-    params_dict = flatten_params(all_params)
+    # Start the MLflow run here
+    with mlflow.start_run() as run:
+        all_params = params_config.model_dump()
+        params_dict = flatten_params(all_params)
 
-    mlflow.log_params(params_dict)
-    logger.info("Parameters Logged")
+        mlflow.log_params(params_dict)
+        logger.info("Parameters Logged")
 
-    generate_evaluation_dataset()
-    logger.info("Evaluation Dataset Created")
+        generate_evaluation_dataset()
+        logger.info("Evaluation Dataset Created")
 
-    evaluate_app()
-    logger.info("Evaluation Completed")
+        evaluate_app()
+        logger.info("Evaluation Completed")
 
-    result_dir = ROOT_DIR / "reports" / "evaluation_results"
-    report_dir = ROOT_DIR / "reports" / "evaluation_report"
+        result_dir = ROOT_DIR / "reports" / "evaluation_results"
+        report_dir = ROOT_DIR / "reports" / "evaluation_report"
 
-    # Fixed: passing the pattern to the updated function
-    results_file = (result_dir / get_latest_results(result_dir, "*.json")).as_posix() + ".json"
-    report_file = (report_dir / get_latest_results(report_dir, "*.md")).as_posix() + ".md"
+        # Fixed: passing the pattern to the updated function
+        results_file = (result_dir / get_latest_results(result_dir, "*.json")).as_posix() + ".json"
+        report_file = (report_dir / get_latest_results(report_dir, "*.md")).as_posix() + ".md"
 
-    mlflow.log_artifact(results_file, "results")
-    mlflow.log_artifact(report_file, "reports")
+        mlflow.log_artifact(results_file, "results")
+        mlflow.log_artifact(report_file, "reports")
 
-    logger.info("Results and Reports logged")
+        logger.info("Results and Reports logged")
 
-    metrics = get_metrics_from_results(results_file)
-    mlflow.log_metrics(metrics)
-    logger.info("Metrics logged")
+        metrics = get_metrics_from_results(results_file)
+        mlflow.log_metrics(metrics)
+        logger.info("Metrics logged")
 
-    system_prompt = import_system_prompt(params_config.rag_app.prompt_label)
-    # Cast to string in case langfuse returns an object instead of pure text
-    mlflow.log_text(str(system_prompt), artifact_file="system_prompt.txt")
-    logger.info("System prompt logged")
+        system_prompt = import_system_prompt(params_config.rag_app.prompt_label)
+        # Cast to string in case langfuse returns an object instead of pure text
+        mlflow.log_text(str(system_prompt), artifact_file="system_prompt.txt")
+        logger.info("System prompt logged")
 
-    # Fixed: using artifact_dir instead of save_artifact_dir
-    eval_dataset_artifact = artifact_name(artifact_type="eval_dataset", artifact_dir="eval_dataset")
-    golden_dataset_artifact = artifact_name(artifact_type="golden_dataset", artifact_dir="golden_dataset")
-    
-    mlflow.log_artifact(eval_dataset_artifact[0], eval_dataset_artifact[1])
-    mlflow.log_artifact(golden_dataset_artifact[0], golden_dataset_artifact[1])
-    logger.info("Logged evaluation and golden datasets")
+        # Fixed: using artifact_dir instead of save_artifact_dir
+        eval_dataset_artifact = artifact_name(artifact_type="eval_dataset", artifact_dir="eval_dataset")
+        golden_dataset_artifact = artifact_name(artifact_type="golden_dataset", artifact_dir="golden_dataset")
+        
+        mlflow.log_artifact(eval_dataset_artifact[0], eval_dataset_artifact[1])
+        mlflow.log_artifact(golden_dataset_artifact[0], golden_dataset_artifact[1])
+        logger.info("Logged evaluation and golden datasets")
 
-    code_files = return_code_files()
-    for code_file in code_files:
-        mlflow.log_artifact(code_file, "code")
-    logger.info("Code files logged")
+        code_files = return_code_files()
+        for code_file in code_files:
+            mlflow.log_artifact(code_file, "code")
+        logger.info("Code files logged")
+
+        mlflow.set_tag("stage", "baseline")
+        mlflow.set_tag("phase", "noise_threshold")
+
+        run_id = run.info.run_id
+        run_name = run.info.run_name
+
+        log_run_info(run_id,run_name)

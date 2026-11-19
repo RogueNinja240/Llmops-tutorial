@@ -1,91 +1,44 @@
-from langchain_community.document_loaders import TextLoader, DirectoryLoader
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
+from typing import TypedDict
+
 from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_chroma import Chroma
-from pathlib import Path
-from dotenv import load_dotenv
-from langgraph.graph import StateGraph, START, END
-from typing import Literal, TypedDict
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
 from langfuse import get_client
+from langgraph.graph import END, START, StateGraph
 
-load_dotenv()
+from app.clients import app_params, llm
+from app.vector_store import get_retriever
 
+# langfuse client
 langfuse = get_client()
 
+# load system prompt
 system_prompt = langfuse.get_prompt(
     name="rag_app_system_prompt",
     type="text",
-    label="latest"
+    label=app_params.prompt_label
 )
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-PROCESSED_TRANSCRIPTS_DIR = REPO_ROOT/"data"/"processed"
-VECTOR_STORE_DIR = REPO_ROOT / "saved-embeddings"
-
-llm = ChatOpenAI(model="gpt-5-mini")
-
-embedder = OpenAIEmbeddings(model="text-embedding-3-small",
-                            dimensions=1024) # 1536
-
-
-chunk_size = 300
-chunk_overlap= 30
-
-
-def upsert_documents(chunk_size:int,chunk_overlap:int):
-    # load the docs from source
-    loader = DirectoryLoader(path=Path("cleaned-transcripts").as_posix(),
-                         loader_cls=TextLoader,
-                         show_progress=True)
-    docs = loader.load()
-
-    chunker =  RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-    encoding_name="o200k_base",
-    chunk_size=chunk_size,
-    chunk_overlap=chunk_overlap)
-
-    chunks = chunker.split_documents(docs)
-
-    # vector store
-
-    vs = Chroma(collection_name="rag_demo",
-            embedding_function=embedder,
-            persist_directory=VECTOR_STORE_DIR.as_posix())
-
-    vs.add_documents(chunks)
-    return vs
-
-def load_knowledge_base():
-    vs = Chroma(collection_name="rag_demo",
-            embedding_function=embedder,
-            persist_directory=VECTOR_STORE_DIR.as_posix())
-    return vs
-
-if VECTOR_STORE_DIR.exists():
-    vs = load_knowledge_base()
-else:
-    vs = upsert_documents(chunk_size,chunk_overlap)
-
-retriever = vs.as_retriever(search_kwargs={"k":3},search_type="similarity")
-
 class RAGState(TypedDict):
-    
-    query: str 
+
+    query: str
     retrieved_docs: list[Document]
-    context: str 
+    context: str
     prompt: ChatPromptTemplate
     response: str
 
+
 def retrieve(state: RAGState) -> dict:
     query = state["query"]
+    retriever = get_retriever()
     retrieved_docs = retriever.invoke(query)
-    
+
     context = "\n\n".join([doc.page_content for doc in retrieved_docs])
     return {"retrieved_docs":retrieved_docs,
             "context":context}
+
+
 
 def augmentation(state: RAGState) -> dict:
 
@@ -93,20 +46,23 @@ def augmentation(state: RAGState) -> dict:
         ("system", system_prompt.prompt),
         ("human", "context: {context}\n\nquery: {query}")
     ])
-    
+
     return {"prompt": prompt}
 
-from langchain_core.output_parsers import StrOutputParser
+
+
 def generation(state: RAGState) -> dict:
-    
+
     query = state["query"]
     context = state["context"]
     prompt = state["prompt"]
-    
+
     rag_chain = prompt | llm | StrOutputParser()
     response = rag_chain.invoke({"context":context, "query":query})
-    
+
     return {"response":response}
+
+
 
 # create the graph
 graph_builder = StateGraph(RAGState)
@@ -121,5 +77,3 @@ graph_builder.add_edge("augmentation","generation")
 graph_builder.add_edge("generation",END)
 
 graph = graph_builder.compile()
-
-print(graph)
