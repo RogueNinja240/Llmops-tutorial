@@ -72,6 +72,7 @@ jobs:
   deploy:
     name: Roll out to Azure Container Apps
     needs: build-and-push
+    if: vars.ENABLE_AZURE_DEPLOY == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
